@@ -27,12 +27,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnSaveAs = document.getElementById('btn-save-as');
   const btnExportHtml = document.getElementById('btn-export-html');
   const btnPrint = document.getElementById('btn-print');
+  const btnCopy = document.getElementById('btn-copy');
 
   const btnBold = document.getElementById('btn-bold');
   const btnItalic = document.getElementById('btn-italic');
   const btnHeading = document.getElementById('btn-heading');
   const btnLink = document.getElementById('btn-link');
   const btnImage = document.getElementById('btn-image');
+  const imageFileInput = document.getElementById('image-file-input');
   const btnCode = document.getElementById('btn-code');
   const btnQuote = document.getElementById('btn-quote');
   const btnListUl = document.getElementById('btn-list-ul');
@@ -55,6 +57,50 @@ document.addEventListener('DOMContentLoaded', () => {
   let isUnsaved = false;
   let isScrollSyncActive = true;
   let themePreference = 'dark'; // Default premium theme
+
+  // Image Placeholder Cache for Scroll Sync Optimization
+  const imageCache = new Map();
+  let imageRefCounter = 0;
+  const BASE64_IMAGE_REGEX = /data:image\/[a-zA-Z0-9-+.]+;base64,[A-Za-z0-9+/=]+/g;
+  const PLACEHOLDER_PREFIX = 'glowedit-img-ref-';
+  const PLACEHOLDER_REGEX = /glowedit-img-ref-\d+/g;
+
+  function importMarkdown(text) {
+    if (!text) return text;
+    return text.replace(BASE64_IMAGE_REGEX, (match) => {
+      for (const [key, val] of imageCache.entries()) {
+        if (val === match) return key;
+      }
+      const placeholder = `${PLACEHOLDER_PREFIX}${++imageRefCounter}`;
+      imageCache.set(placeholder, match);
+      return placeholder;
+    });
+  }
+
+  function exportMarkdown(text) {
+    if (!text) return text;
+    return text.replace(PLACEHOLDER_REGEX, (match) => {
+      return imageCache.get(match) || match;
+    });
+  }
+
+  function cleanImageCache(text) {
+    if (!text) {
+      imageCache.clear();
+      return;
+    }
+    const activeRefs = new Set();
+    let match;
+    PLACEHOLDER_REGEX.lastIndex = 0;
+    while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
+      activeRefs.add(match[0]);
+    }
+    for (const key of imageCache.keys()) {
+      if (!activeRefs.has(key)) {
+        imageCache.delete(key);
+      }
+    }
+  }
   
   const STORAGE_KEYS = {
     CONTENT: 'glowedit-draft-content',
@@ -136,8 +182,13 @@ document.addEventListener('DOMContentLoaded', () => {
   function updatePreview() {
     const rawMarkdown = textarea.value;
 
+    // Clean unused image cache to prevent memory leaks
+    cleanImageCache(rawMarkdown);
+
     if (window.marked && window.DOMPurify) {
-      const parsedHtml = marked.parse(rawMarkdown);
+      // Export markdown with restored Base64 data for rendering
+      const previewMarkdown = exportMarkdown(rawMarkdown);
+      const parsedHtml = marked.parse(previewMarkdown);
       const cleanHtml = DOMPurify.sanitize(parsedHtml);
       previewOutput.innerHTML = cleanHtml;
 
@@ -145,6 +196,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.Prism) {
         Prism.highlightAllUnder(previewOutput);
       }
+      
+      // Build scroll synchronization map
+      buildScrollMap();
     } else {
       previewOutput.textContent = rawMarkdown;
     }
@@ -152,8 +206,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update document statistics
     updateStatistics(rawMarkdown);
 
-    // Save content (even empty strings are saved to properly reflect clear states)
-    storage.set(STORAGE_KEYS.CONTENT, rawMarkdown);
+    // Save content with restored Base64 data to localStorage
+    const fullMarkdown = exportMarkdown(rawMarkdown);
+    storage.set(STORAGE_KEYS.CONTENT, fullMarkdown);
     setUnsavedStatus(rawMarkdown.trim() !== '');
   }
 
@@ -204,27 +259,166 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   let isSyncing = false;
-  function syncScroll(source, destination) {
+  let activeScrollSource = null; // Track which pane is actively scrolled by user
+  let lineBlockMap = [];         // Map textarea lines to preview element indices
+
+  // Track active window by hover, touch, & focus to prevent sync feedback loops
+  textarea.addEventListener('mouseenter', () => { activeScrollSource = 'editor'; });
+  textarea.addEventListener('focus', () => { activeScrollSource = 'editor'; });
+  textarea.addEventListener('touchstart', () => { activeScrollSource = 'editor'; }, { passive: true });
+
+  previewContainer.addEventListener('mouseenter', () => { activeScrollSource = 'preview'; });
+  previewContainer.addEventListener('touchstart', () => { activeScrollSource = 'preview'; }, { passive: true });
+
+  // Get precise line height of the textarea
+  function getLineHeight() {
+    const style = window.getComputedStyle(textarea);
+    const lh = style.lineHeight;
+    if (lh === 'normal') {
+      const fs = parseFloat(style.fontSize) || 15;
+      return fs * 1.2;
+    }
+    const parsed = parseFloat(lh);
+    return isNaN(parsed) ? 24 : parsed;
+  }
+
+  // Build mapping from line index to preview DOM element index
+  function buildScrollMap() {
+    const text = textarea.value;
+    const lines = text.split('\n');
+    lineBlockMap = new Array(lines.length).fill(0);
+    
+    const previewElements = Array.from(previewOutput.children);
+    if (previewElements.length === 0) return;
+
+    let elementIndex = 0;
+    let inCodeBlock = false;
+    let inList = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Track code block boundaries
+      if (line.startsWith('```')) {
+        inCodeBlock = !inCodeBlock;
+        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
+        if (!inCodeBlock) {
+          elementIndex++;
+        }
+        continue;
+      }
+      
+      if (inCodeBlock) {
+        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
+        continue;
+      }
+
+      if (line === '') {
+        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
+        continue;
+      }
+
+      const isHeader = line.startsWith('#');
+      const isList = line.startsWith('- ') || line.startsWith('* ') || /^\d+\.\s/.test(line);
+      const isQuote = line.startsWith('>');
+      const isTable = line.startsWith('|');
+      const isHr = line.startsWith('---') || line.startsWith('***');
+
+      if (isList) {
+        inList = true;
+        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
+        continue;
+      } else if (inList && line !== '') {
+        inList = false;
+        elementIndex++;
+      }
+
+      if (isHeader || isQuote || isTable || isHr) {
+        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
+        elementIndex++;
+      } else {
+        // Normal paragraph
+        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
+        const nextLine = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
+        const nextIsBlock = nextLine === '' || nextLine.startsWith('#') || nextLine.startsWith('- ') || nextLine.startsWith('* ') || /^\d+\.\s/.test(nextLine) || nextLine.startsWith('>') || nextLine.startsWith('|') || nextLine.startsWith('---') || nextLine.startsWith('***') || nextLine.startsWith('```');
+        if (nextIsBlock) {
+          elementIndex++;
+        }
+      }
+    }
+  }
+
+  // Sync editor scroll to preview
+  function syncEditorToPreview() {
     if (!isScrollSyncActive || isSyncing) return;
     isSyncing = true;
-    
-    const sourcePercentage = source.scrollTop / (source.scrollHeight - source.clientHeight);
-    const targetScrollTop = sourcePercentage * (destination.scrollHeight - destination.clientHeight);
-    
-    destination.scrollTop = targetScrollTop;
 
-    // Release sync lock on next frame
+    const lineHeight = getLineHeight();
+    const currentLine = Math.floor(textarea.scrollTop / lineHeight);
+    
+    if (lineBlockMap.length > 0 && currentLine < lineBlockMap.length) {
+      const targetElementIndex = lineBlockMap[currentLine];
+      const previewElements = previewOutput.children;
+      
+      if (targetElementIndex < previewElements.length) {
+        const targetElement = previewElements[targetElementIndex];
+        // Align 1st line of editor viewport with corresponding preview element offsetTop
+        const targetScrollTop = targetElement.offsetTop;
+        
+        previewContainer.scrollTop = targetScrollTop;
+      }
+    }
+
+    requestAnimationFrame(() => {
+      isSyncing = false;
+    });
+  }
+
+  // Sync preview scroll to editor
+  function syncPreviewToEditor() {
+    if (!isScrollSyncActive || isSyncing) return;
+    isSyncing = true;
+
+    const previewElements = Array.from(previewOutput.children);
+    if (previewElements.length === 0 || lineBlockMap.length === 0) {
+      isSyncing = false;
+      return;
+    }
+
+    const currentScrollTop = previewContainer.scrollTop;
+    
+    // Find preview element that is closest to top of viewport
+    let targetElementIndex = 0;
+    for (let i = 0; i < previewElements.length; i++) {
+      if (previewElements[i].offsetTop <= currentScrollTop + 5) {
+        targetElementIndex = i;
+      } else {
+        break;
+      }
+    }
+
+    // Find the first line in map that matches the target element index
+    const targetLine = lineBlockMap.indexOf(targetElementIndex);
+    if (targetLine !== -1) {
+      const lineHeight = getLineHeight();
+      textarea.scrollTop = targetLine * lineHeight;
+    }
+
     requestAnimationFrame(() => {
       isSyncing = false;
     });
   }
 
   textarea.addEventListener('scroll', () => {
-    syncScroll(textarea, previewContainer);
+    if (activeScrollSource === 'editor') {
+      syncEditorToPreview();
+    }
   });
 
   previewContainer.addEventListener('scroll', () => {
-    syncScroll(previewContainer, textarea);
+    if (activeScrollSource === 'preview') {
+      syncPreviewToEditor();
+    }
   });
 
   // Initialize toggle UI active state
@@ -323,7 +517,70 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  btnImage.addEventListener('click', () => insertFormat('![', '](https://example.com/image.jpg)', '画像の説明'));
+  btnImage.addEventListener('click', () => {
+    imageFileInput.value = ''; // Reset input selection
+    imageFileInput.click();
+  });
+
+  imageFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Show warning for images larger than 3MB to prevent performance drop
+    const maxWarningSize = 3 * 1024 * 1024;
+    if (file.size > maxWarningSize) {
+      const proceed = confirm(`選択した画像は約 ${(file.size / (1024 * 1024)).toFixed(1)}MB あります。大容量の画像をインライン化するとエディタが重くなる可能性がありますが、挿入しますか？`);
+      if (!proceed) return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Data = event.target.result;
+      const altText = file.name.substring(0, file.name.lastIndexOf('.')) || '画像の説明';
+      
+      const currentContent = textarea.value;
+      
+      // Generate a unique reference ID (e.g., ref-img1, ref-img2...)
+      let refIndex = 1;
+      while (currentContent.includes(`[ref-img${refIndex}]`)) {
+        refIndex++;
+      }
+      const refKey = `ref-img${refIndex}`;
+
+      // Reference-style link to insert at cursor: ![alt][ref-img1]
+      const linkText = `![${altText}][${refKey}]`;
+      
+      textarea.focus();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      
+      // 1. Insert the reference link at the cursor position (preserving undo history)
+      const success = document.execCommand('insertText', false, linkText);
+      if (!success) {
+        textarea.value = currentContent.substring(0, start) + linkText + currentContent.substring(end);
+      }
+      
+      // 2. Put Base64 data into memory cache and append the lightweight placeholder definition at the bottom
+      const placeholder = `${PLACEHOLDER_PREFIX}${++imageRefCounter}`;
+      imageCache.set(placeholder, base64Data);
+
+      const updatedContent = textarea.value;
+      const spacing = updatedContent.endsWith('\n') ? '\n' : '\n\n';
+      const refDefinition = `${spacing}[${refKey}]: ${placeholder}\n`;
+      
+      textarea.value = updatedContent + refDefinition;
+      
+      // 3. Restore cursor position to right after the inserted reference link
+      const nextCursorPos = start + linkText.length;
+      textarea.setSelectionRange(nextCursorPos, nextCursorPos);
+
+      queuePreviewUpdate();
+    };
+    reader.onerror = () => {
+      alert('画像の読み込みに失敗しました。');
+    };
+    reader.readAsDataURL(file);
+  });
   
   btnCode.addEventListener('click', () => {
     const start = textarea.selectionStart;
@@ -363,8 +620,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         fileHandle = handle;
         const file = await fileHandle.getFile();
+        const text = await file.text();
         
-        textarea.value = await file.text();
+        // Reset image cache on file open
+        imageCache.clear();
+        imageRefCounter = 0;
+        textarea.value = importMarkdown(text);
+
         currentFilenameSpan.textContent = file.name;
         storage.set(STORAGE_KEYS.FILENAME, file.name);
         setUnsavedStatus(false);
@@ -385,7 +647,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (event) => {
-          textarea.value = event.target.result;
+          const text = event.target.result;
+          
+          // Reset image cache on file open
+          imageCache.clear();
+          imageRefCounter = 0;
+          textarea.value = importMarkdown(text);
+
           currentFilenameSpan.textContent = file.name;
           storage.set(STORAGE_KEYS.FILENAME, file.name);
           setUnsavedStatus(false);
@@ -428,7 +696,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       try {
         const writable = await fileHandle.createWritable();
-        await writable.write(textarea.value);
+        // Export file with original Base64 data restored
+        const fullMarkdown = exportMarkdown(textarea.value);
+        await writable.write(fullMarkdown);
         await writable.close();
         
         const file = await fileHandle.getFile();
@@ -446,7 +716,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!filename) return;
       
       const finalName = filename.endsWith('.md') ? filename : filename + '.md';
-      const blob = new Blob([textarea.value], { type: 'text/markdown;charset=utf-8;' });
+      // Export file with original Base64 data restored
+      const fullMarkdown = exportMarkdown(textarea.value);
+      const blob = new Blob([fullMarkdown], { type: 'text/markdown;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       
@@ -466,7 +738,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // HTML Export
   function exportHtml() {
     const rawMarkdown = textarea.value;
-    const parsedHtml = window.marked ? marked.parse(rawMarkdown) : rawMarkdown;
+    // Export HTML with original Base64 data restored
+    const fullMarkdown = exportMarkdown(rawMarkdown);
+    const parsedHtml = window.marked ? marked.parse(fullMarkdown) : fullMarkdown;
     const cleanHtml = window.DOMPurify ? DOMPurify.sanitize(parsedHtml) : parsedHtml;
 
     const docHtml = `<!DOCTYPE html>
@@ -516,12 +790,86 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  // Copy to Clipboard (with fallback for file:// contexts)
+  let toastElement = null;
+  let toastTimeout = null;
+
+  function showToast(message) {
+    if (!toastElement) {
+      toastElement = document.createElement('div');
+      toastElement.className = 'toast-notification';
+      toastElement.innerHTML = `
+        <span class="toast-icon">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+          </svg>
+        </span>
+        <span class="toast-message"></span>
+      `;
+      document.body.appendChild(toastElement);
+    }
+
+    toastElement.querySelector('.toast-message').textContent = message;
+    
+    if (toastTimeout) {
+      clearTimeout(toastTimeout);
+    }
+    
+    toastElement.classList.add('show');
+    
+    toastTimeout = setTimeout(() => {
+      toastElement.classList.remove('show');
+    }, 2000);
+  }
+
+  async function copyToClipboard() {
+    // Restore original Base64 data before copying to clipboard
+    const textToCopy = exportMarkdown(textarea.value);
+    
+    // Attempt modern async clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        showToast('クリップボードにコピーしました');
+        return;
+      } catch (err) {
+        console.warn('Async clipboard API failed, trying fallback...', err);
+      }
+    }
+    
+    // Fallback: execCommand('copy') for offline file:// contexts
+    try {
+      const tempTextArea = document.createElement('textarea');
+      tempTextArea.value = textToCopy;
+      tempTextArea.style.position = 'fixed';
+      tempTextArea.style.left = '-999999px';
+      tempTextArea.style.top = '-999999px';
+      document.body.appendChild(tempTextArea);
+      
+      tempTextArea.focus();
+      tempTextArea.select();
+      
+      const success = document.execCommand('copy');
+      document.body.removeChild(tempTextArea);
+      
+      if (success) {
+        showToast('クリップボードにコピーしました');
+      } else {
+        throw new Error('execCommand copy failed');
+      }
+    } catch (err) {
+      console.error('Copy failed:', err);
+      alert('コピーに失敗しました。');
+    }
+  }
+
   // Bind Buttons
   btnOpen.addEventListener('click', openFile);
   btnSave.addEventListener('click', () => saveFile(false));
   btnSaveAs.addEventListener('click', () => saveFile(true));
   btnExportHtml.addEventListener('click', exportHtml);
   btnPrint.addEventListener('click', () => window.print());
+  btnCopy.addEventListener('click', copyToClipboard);
 
   /* ==========================================================================
      6. Desktop Panel Resizer (PointerEvents for touch/mouse & CSS Var allocation)
@@ -639,7 +987,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedFilename = storage.get(STORAGE_KEYS.FILENAME);
     
     if (savedContent !== null) {
-      textarea.value = savedContent;
+      // Reset image cache and import saved content with placeholders
+      imageCache.clear();
+      imageRefCounter = 0;
+      textarea.value = importMarkdown(savedContent);
+
       currentFilenameSpan.textContent = savedFilename || '新規ドキュメント.md';
       // Empty check logic correction
       setUnsavedStatus(savedContent.trim() !== '');

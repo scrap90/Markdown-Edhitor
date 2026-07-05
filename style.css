@@ -24,6 +24,17 @@
   --blockquote-bg-light: HSL(220, 20%, 96%);
   --primary-theme-light: HSL(220, 95%, 45%);
 
+  /* Prism Token Colors for Light Theme (Sleek High Contrast) */
+  --token-comment-light: HSL(220, 10%, 50%);
+  --token-punctuation-light: HSL(220, 20%, 35%);
+  --token-tag-light: HSL(355, 65%, 45%);
+  --token-function-light: HSL(210, 75%, 45%);
+  --token-boolean-light: HSL(25, 75%, 45%);
+  --token-keyword-light: HSL(290, 60%, 45%);
+  --token-string-light: HSL(140, 60%, 32%);
+  --token-operator-light: HSL(185, 70%, 32%);
+  --token-text-light: HSL(220, 25%, 25%);
+
   /* Dark Theme Palette (WCAG AA Compliant contrast ratio >= 4.5:1) */
   --bg-dark: HSL(220, 20%, 8%);
   --surface-dark: HSL(220, 20%, 12%);
@@ -36,6 +47,17 @@
   --code-bg-dark: HSL(220, 15%, 15%);
   --blockquote-bg-dark: HSL(220, 20%, 11%);
   --primary-theme-dark: HSL(220, 95%, 68%); /* Contrast ratio is ~6.5:1 against dark surface */
+
+  /* Prism Token Colors for Dark Theme (Tomorrow Night mapping) */
+  --token-comment-dark: #999999;
+  --token-punctuation-dark: #cccccc;
+  --token-tag-dark: #e2777a;
+  --token-function-dark: #f08d49;
+  --token-boolean-dark: #f08d49;
+  --token-keyword-dark: #cc99cd;
+  --token-string-dark: #7ec699;
+  --token-operator-dark: #67cdcc;
+  --token-text-dark: #cccccc;
 
   /* Adaptive Assignments (Using light-dark for modern engines) */
   color-scheme: light dark;
@@ -50,6 +72,17 @@
   --code-bg: light-dark(var(--code-bg-light), var(--code-bg-dark));
   --blockquote-bg: light-dark(var(--blockquote-bg-light), var(--blockquote-bg-dark));
   --primary: light-dark(var(--primary-theme-light), var(--primary-theme-dark));
+
+  /* Adaptive Prism Tokens */
+  --token-comment: light-dark(var(--token-comment-light), var(--token-comment-dark));
+  --token-punctuation: light-dark(var(--token-punctuation-light), var(--token-punctuation-dark));
+  --token-tag: light-dark(var(--token-tag-light), var(--token-tag-dark));
+  --token-function: light-dark(var(--token-function-light), var(--token-function-dark));
+  --token-boolean: light-dark(var(--token-boolean-light), var(--token-boolean-dark));
+  --token-keyword: light-dark(var(--token-keyword-light), var(--token-keyword-dark));
+  --token-string: light-dark(var(--token-string-light), var(--token-string-dark));
+  --token-operator: light-dark(var(--token-operator-light), var(--token-operator-dark));
+  --token-text: light-dark(var(--token-text-light), var(--token-text-dark));
 
   /* Layout Constants */
   --header-height: 56px;
@@ -70,6 +103,15 @@
     --code-bg: var(--code-bg-dark);
     --blockquote-bg: var(--blockquote-bg-dark);
     --primary: var(--primary-theme-dark);
+    --token-comment: var(--token-comment-dark);
+    --token-punctuation: var(--token-punctuation-dark);
+    --token-tag: var(--token-tag-dark);
+    --token-function: var(--token-function-dark);
+    --token-boolean: var(--token-boolean-dark);
+    --token-keyword: var(--token-keyword-dark);
+    --token-string: var(--token-string-dark);
+    --token-operator: var(--token-operator-dark);
+    --token-text: var(--token-text-dark);
   }
 }
 
@@ -85,6 +127,15 @@
   --code-bg: var(--code-bg-dark);
   --blockquote-bg: var(--blockquote-bg-dark);
   --primary: var(--primary-theme-dark);
+  --token-comment: var(--token-comment-dark);
+  --token-punctuation: var(--token-punctuation-dark);
+  --token-tag: var(--token-tag-dark);
+  --token-function: var(--token-function-dark);
+  --token-boolean: var(--token-boolean-dark);
+  --token-keyword: var(--token-keyword-dark);
+  --token-string: var(--token-string-dark);
+  --token-operator: var(--token-operator-dark);
+  --token-text: var(--token-text-dark);
 }
 
 :root[data-theme="light"] {
@@ -99,6 +150,15 @@
   --code-bg: var(--code-bg-light);
   --blockquote-bg: var(--blockquote-bg-light);
   --primary: var(--primary-theme-light);
+  --token-comment: var(--token-comment-light);
+  --token-punctuation: var(--token-punctuation-light);
+  --token-tag: var(--token-tag-light);
+  --token-function: var(--token-function-light);
+  --token-boolean: var(--token-boolean-light);
+  --token-keyword: var(--token-keyword-light);
+  --token-string: var(--token-string-light);
+  --token-operator: var(--token-operator-light);
+  --token-text: var(--token-text-light);
 }
 
 * {
@@ -667,6 +727,8 @@ body {
   margin: 0;
   font-size: 85%;
   background-color: var(--code-bg);
+  color: light-dark(HSL(220, 45%, 22%), HSL(220, 20%, 85%)); /* Increased contrast for readability */
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-family: SFMono-Regular, Consolas, monospace;
 }
@@ -675,11 +737,73 @@ body {
   padding: 16px;
   overflow: auto;
   font-size: 85%;
-  line-height: 1.45;
   background-color: var(--code-bg);
   border-radius: 8px;
   margin-bottom: 16px;
   border: 1px solid var(--border);
+}
+
+/* Override PrismJS Token Colors for Theme-Aware High Contrast syntax highlighting */
+.markdown-body pre[class*="language-"],
+.markdown-body code[class*="language-"] {
+  color: var(--token-text) !important;
+}
+
+.markdown-body .token.comment,
+.markdown-body .token.block-comment,
+.markdown-body .token.prolog,
+.markdown-body .token.doctype,
+.markdown-body .token.cdata {
+  color: var(--token-comment) !important;
+}
+
+.markdown-body .token.punctuation {
+  color: var(--token-punctuation) !important;
+}
+
+.markdown-body .token.tag,
+.markdown-body .token.attr-name,
+.markdown-body .token.namespace,
+.markdown-body .token.deleted {
+  color: var(--token-tag) !important;
+}
+
+.markdown-body .token.function-name,
+.markdown-body .token.function {
+  color: var(--token-function) !important;
+}
+
+.markdown-body .token.boolean,
+.markdown-body .token.number {
+  color: var(--token-boolean) !important;
+}
+
+.markdown-body .token.class-name,
+.markdown-body .token.constant,
+.markdown-body .token.property,
+.markdown-body .token.symbol {
+  color: var(--token-tag) !important;
+}
+
+.markdown-body .token.keyword,
+.markdown-body .token.atrule,
+.markdown-body .token.builtin,
+.markdown-body .token.important,
+.markdown-body .token.selector {
+  color: var(--token-keyword) !important;
+}
+
+.markdown-body .token.string,
+.markdown-body .token.char,
+.markdown-body .token.regex,
+.markdown-body .token.variable {
+  color: var(--token-string) !important;
+}
+
+.markdown-body .token.operator,
+.markdown-body .token.entity,
+.markdown-body .token.url {
+  color: var(--token-operator) !important;
 }
 
 .markdown-body pre code {
@@ -767,6 +891,45 @@ body {
   .preview-container {
     padding: 16px; /* Optimized narrow padding for smartphones */
   }
+}
+
+/* ==========================================================================
+   Toast Notification (Premium Minimal Alert)
+   ========================================================================== */
+
+.toast-notification {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background-color: light-dark(HSLA(220, 15%, 15%, 0.9), HSLA(220, 20%, 95%, 0.9));
+  color: light-dark(#fff, #000);
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 9999;
+  opacity: 0;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+  pointer-events: none;
+  border: 1px solid var(--border);
+}
+
+.toast-notification.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.toast-icon {
+  color: var(--primary);
+  display: flex;
+  align-items: center;
 }
 
 /* ==========================================================================
