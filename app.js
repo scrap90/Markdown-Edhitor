@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const statReadTime = document.getElementById('stat-read-time');
 
   // Toolbar Actions
+  const btnNew = document.getElementById('btn-new');
   const btnOpen = document.getElementById('btn-open');
   const btnSave = document.getElementById('btn-save');
   const btnSaveAs = document.getElementById('btn-save-as');
@@ -184,6 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Clean unused image cache to prevent memory leaks
     cleanImageCache(rawMarkdown);
+    updateLineBlockMap();
 
     if (window.marked && window.DOMPurify) {
       // Export markdown with restored Base64 data for rendering
@@ -196,9 +198,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.Prism) {
         Prism.highlightAllUnder(previewOutput);
       }
-      
-      // Build scroll synchronization map
-      buildScrollMap();
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          syncCursorToPreview();
+        });
+      });
     } else {
       previewOutput.textContent = rawMarkdown;
     }
@@ -245,8 +250,6 @@ document.addEventListener('DOMContentLoaded', () => {
     saveIndicator.style.display = unsaved ? 'inline-block' : 'none';
   }
 
-  textarea.addEventListener('input', queuePreviewUpdate);
-
   /* ==========================================================================
      3. Scroll Synchronization (rAF Frame-Locked to prevent jitter)
      ========================================================================== */
@@ -260,7 +263,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let isSyncing = false;
   let activeScrollSource = null; // Track which pane is actively scrolled by user
-  let lineBlockMap = [];         // Map textarea lines to preview element indices
+  let scrollSyncFrame = null;
+  let lineBlockMap = [];
+  let lastCursorLine = 0;
+  let activePreviewBlock = null;
 
   // Track active window by hover, touch, & focus to prevent sync feedback loops
   textarea.addEventListener('mouseenter', () => { activeScrollSource = 'editor'; });
@@ -270,139 +276,101 @@ document.addEventListener('DOMContentLoaded', () => {
   previewContainer.addEventListener('mouseenter', () => { activeScrollSource = 'preview'; });
   previewContainer.addEventListener('touchstart', () => { activeScrollSource = 'preview'; }, { passive: true });
 
-  // Get precise line height of the textarea
-  function getLineHeight() {
-    const style = window.getComputedStyle(textarea);
-    const lh = style.lineHeight;
-    if (lh === 'normal') {
-      const fs = parseFloat(style.fontSize) || 15;
-      return fs * 1.2;
+  function scheduleScrollSync(callback) {
+    if (scrollSyncFrame) {
+      cancelAnimationFrame(scrollSyncFrame);
     }
-    const parsed = parseFloat(lh);
-    return isNaN(parsed) ? 24 : parsed;
+
+    scrollSyncFrame = requestAnimationFrame(() => {
+      scrollSyncFrame = null;
+      callback();
+    });
   }
 
-  // Build mapping from line index to preview DOM element index
-  function buildScrollMap() {
-    const text = textarea.value;
-    const lines = text.split('\n');
-    lineBlockMap = new Array(lines.length).fill(0);
-    
+  function updateLineBlockMap() {
+    lineBlockMap = window.GlowEditScrollSync.buildLineBlockMap(textarea.value, window.marked && marked.lexer);
+  }
+
+  function clearActivePreviewBlock() {
+    if (activePreviewBlock) {
+      activePreviewBlock.classList.remove('preview-block-active');
+      activePreviewBlock = null;
+    }
+  }
+
+  function getCursorViewportAnchor(targetElement, cursorProgress) {
+    const viewportHeight = previewContainer.clientHeight || 500;
+    const blockTop = targetElement.offsetTop;
+    const blockHeight = targetElement.offsetHeight || 80;
+    const previewMaxScroll = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
+
+    let anchorRatio = 0.18;
+    if (cursorProgress <= 0.15) {
+      anchorRatio = 0.08;
+    } else if (cursorProgress <= 0.4) {
+      anchorRatio = 0.2;
+    } else if (cursorProgress <= 0.7) {
+      anchorRatio = 0.35;
+    } else if (cursorProgress <= 0.9) {
+      anchorRatio = 0.6;
+    } else {
+      anchorRatio = 0.8;
+    }
+
+    const targetScrollTop = Math.max(0, blockTop - Math.max(12, viewportHeight * anchorRatio) + (cursorProgress > 0.9 ? blockHeight * 0.25 : 0));
+    return Math.min(targetScrollTop, previewMaxScroll);
+  }
+
+  function syncCursorToPreview() {
+    if (!isScrollSyncActive) return;
+    updateLineBlockMap();
+
+    const cursorPosition = textarea.selectionStart;
+    const textBeforeCursor = textarea.value.slice(0, cursorPosition);
+    const cursorLine = textBeforeCursor.split('\n').length - 1;
+    const totalLines = Math.max(1, textarea.value.split('\n').length);
+    const cursorProgress = totalLines > 1 ? cursorLine / (totalLines - 1) : 0;
+    lastCursorLine = cursorLine;
+
+    const blockIndex = lineBlockMap[cursorLine] ?? 0;
     const previewElements = Array.from(previewOutput.children);
     if (previewElements.length === 0) return;
 
-    let elementIndex = 0;
-    let inCodeBlock = false;
-    let inList = false;
+    const targetIndex = Math.min(blockIndex, previewElements.length - 1);
+    const targetElement = previewElements[targetIndex];
+    if (!targetElement) return;
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      
-      // Track code block boundaries
-      if (line.startsWith('```')) {
-        inCodeBlock = !inCodeBlock;
-        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
-        if (!inCodeBlock) {
-          elementIndex++;
-        }
-        continue;
-      }
-      
-      if (inCodeBlock) {
-        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
-        continue;
-      }
+    clearActivePreviewBlock();
+    targetElement.classList.add('preview-block-active');
+    activePreviewBlock = targetElement;
 
-      if (line === '') {
-        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
-        continue;
-      }
-
-      const isHeader = line.startsWith('#');
-      const isList = line.startsWith('- ') || line.startsWith('* ') || /^\d+\.\s/.test(line);
-      const isQuote = line.startsWith('>');
-      const isTable = line.startsWith('|');
-      const isHr = line.startsWith('---') || line.startsWith('***');
-
-      if (isList) {
-        inList = true;
-        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
-        continue;
-      } else if (inList && line !== '') {
-        inList = false;
-        elementIndex++;
-      }
-
-      if (isHeader || isQuote || isTable || isHr) {
-        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
-        elementIndex++;
-      } else {
-        // Normal paragraph
-        lineBlockMap[i] = Math.min(elementIndex, previewElements.length - 1);
-        const nextLine = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
-        const nextIsBlock = nextLine === '' || nextLine.startsWith('#') || nextLine.startsWith('- ') || nextLine.startsWith('* ') || /^\d+\.\s/.test(nextLine) || nextLine.startsWith('>') || nextLine.startsWith('|') || nextLine.startsWith('---') || nextLine.startsWith('***') || nextLine.startsWith('```');
-        if (nextIsBlock) {
-          elementIndex++;
-        }
-      }
-    }
+    previewContainer.scrollTop = getCursorViewportAnchor(targetElement, cursorProgress);
   }
 
-  // Sync editor scroll to preview
   function syncEditorToPreview() {
     if (!isScrollSyncActive || isSyncing) return;
     isSyncing = true;
 
-    const lineHeight = getLineHeight();
-    const currentLine = Math.floor(textarea.scrollTop / lineHeight);
-    
-    if (lineBlockMap.length > 0 && currentLine < lineBlockMap.length) {
-      const targetElementIndex = lineBlockMap[currentLine];
-      const previewElements = previewOutput.children;
-      
-      if (targetElementIndex < previewElements.length) {
-        const targetElement = previewElements[targetElementIndex];
-        // Align 1st line of editor viewport with corresponding preview element offsetTop
-        const targetScrollTop = targetElement.offsetTop;
-        
-        previewContainer.scrollTop = targetScrollTop;
-      }
-    }
+    const editorMaxScroll = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
+    const previewMaxScroll = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
+    const progress = window.GlowEditScrollSync.getScrollProgress(textarea.scrollTop, editorMaxScroll);
+
+    previewContainer.scrollTop = window.GlowEditScrollSync.getScrollTopForProgress(progress, previewMaxScroll);
 
     requestAnimationFrame(() => {
       isSyncing = false;
     });
   }
 
-  // Sync preview scroll to editor
   function syncPreviewToEditor() {
     if (!isScrollSyncActive || isSyncing) return;
     isSyncing = true;
 
-    const previewElements = Array.from(previewOutput.children);
-    if (previewElements.length === 0 || lineBlockMap.length === 0) {
-      isSyncing = false;
-      return;
-    }
+    const previewMaxScroll = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
+    const editorMaxScroll = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
+    const progress = window.GlowEditScrollSync.getScrollProgress(previewContainer.scrollTop, previewMaxScroll);
 
-    const currentScrollTop = previewContainer.scrollTop;
-    
-    // Find preview element that is closest to top of viewport
-    let targetElementIndex = 0;
-    for (let i = 0; i < previewElements.length; i++) {
-      if (previewElements[i].offsetTop <= currentScrollTop + 5) {
-        targetElementIndex = i;
-      } else {
-        break;
-      }
-    }
-
-    // Find the first line in map that matches the target element index
-    const targetLine = lineBlockMap.indexOf(targetElementIndex);
-    if (targetLine !== -1) {
-      const lineHeight = getLineHeight();
-      textarea.scrollTop = targetLine * lineHeight;
-    }
+    textarea.scrollTop = window.GlowEditScrollSync.getScrollTopForProgress(progress, editorMaxScroll);
 
     requestAnimationFrame(() => {
       isSyncing = false;
@@ -411,13 +379,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   textarea.addEventListener('scroll', () => {
     if (activeScrollSource === 'editor') {
-      syncEditorToPreview();
+      scheduleScrollSync(syncEditorToPreview);
     }
   });
 
+  textarea.addEventListener('keyup', syncCursorToPreview);
+  textarea.addEventListener('click', syncCursorToPreview);
+  textarea.addEventListener('select', syncCursorToPreview);
+  textarea.addEventListener('input', queuePreviewUpdate);
+
   previewContainer.addEventListener('scroll', () => {
     if (activeScrollSource === 'preview') {
-      syncPreviewToEditor();
+      scheduleScrollSync(syncPreviewToEditor);
     }
   });
 
@@ -605,6 +578,27 @@ document.addEventListener('DOMContentLoaded', () => {
   // Disable File System Access API on local file:// sandbox contexts to avoid API exceptions
   const isFileProtocol = window.location.protocol === 'file:';
   const hasFileSystemAPI = !isFileProtocol && 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
+
+  // New File
+  const DEFAULT_FILENAME = '新規ドキュメント.md';
+
+  function newFile() {
+    if (isUnsaved) {
+      const proceed = confirm('保存されていない変更があります。新規作成すると現在の内容が失われますが、よろしいですか？');
+      if (!proceed) return;
+    }
+
+    fileHandle = null;
+    imageCache.clear();
+    imageRefCounter = 0;
+    textarea.value = '';
+
+    currentFilenameSpan.textContent = DEFAULT_FILENAME;
+    storage.set(STORAGE_KEYS.FILENAME, DEFAULT_FILENAME);
+    setUnsavedStatus(false);
+    updatePreview();
+    textarea.focus();
+  }
 
   // Open File
   async function openFile() {
@@ -864,6 +858,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Bind Buttons
+  btnNew.addEventListener('click', newFile);
   btnOpen.addEventListener('click', openFile);
   btnSave.addEventListener('click', () => saveFile(false));
   btnSaveAs.addEventListener('click', () => saveFile(true));
@@ -929,9 +924,16 @@ document.addEventListener('DOMContentLoaded', () => {
      8. Keyboard Shortcuts Integration (OS/Browser compatibility)
      ========================================================================== */
 
+  // On Mac, plain Ctrl+<letter> is reserved by the OS/browser for Emacs-style
+  // text editing (Ctrl+A/E/F/B/D/H/K/N/P/T/W/Y move or edit within text
+  // fields). Only Cmd triggers app shortcuts there, so those native bindings
+  // keep working while the editor is focused. Windows/Linux have no Cmd key,
+  // so Ctrl remains the shortcut modifier there.
+  const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+
   window.addEventListener('keydown', (e) => {
-    const isMeta = e.ctrlKey || e.metaKey;
-    if (!isMeta) return;
+    const isShortcutModifier = isMac ? (e.metaKey && !e.ctrlKey) : e.ctrlKey;
+    if (!isShortcutModifier) return;
 
     const activeEl = document.activeElement;
     const isEditorFocused = activeEl === textarea;
@@ -944,6 +946,10 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'o':
         e.preventDefault();
         openFile();
+        break;
+      case 'n':
+        e.preventDefault();
+        newFile();
         break;
       case 'p':
         e.preventDefault();
@@ -992,7 +998,7 @@ document.addEventListener('DOMContentLoaded', () => {
       imageRefCounter = 0;
       textarea.value = importMarkdown(savedContent);
 
-      currentFilenameSpan.textContent = savedFilename || '新規ドキュメント.md';
+      currentFilenameSpan.textContent = savedFilename || DEFAULT_FILENAME;
       // Empty check logic correction
       setUnsavedStatus(savedContent.trim() !== '');
     } else {
@@ -1046,7 +1052,23 @@ greet("ユーザー");
     updatePreview();
   }
 
+  // Displayed shortcut hints default to the Ctrl+ convention (Windows/Linux).
+  // On Mac the actual trigger is Cmd (see the keydown handler above), so
+  // relabel visible hints to match what will really work, skipping the
+  // copy button which already documents both Ctrl+C and Cmd+C explicitly.
+  function localizeShortcutHints() {
+    if (!isMac) return;
+    document.querySelectorAll('[title*="Ctrl+"]').forEach((el) => {
+      if (el === btnCopy) return;
+      el.title = el.title.replace(/Ctrl\+/g, '⌘');
+    });
+    document.querySelectorAll('.keyboard-hint').forEach((el) => {
+      el.textContent = el.textContent.replace(/Ctrl\+/g, '⌘');
+    });
+  }
+
   // Run initialization
   initTheme();
   loadInitialContent();
+  localizeShortcutHints();
 });

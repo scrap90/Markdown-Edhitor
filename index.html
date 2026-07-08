@@ -42,7 +42,7 @@
                         <path d="M9.37 5.51A7.354 7.354 0 0 0 9.35 12a7.354 7.354 0 0 0 6.49 6.49 7.49 7.49 0 0 1-6.47-12.98M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c.44-.06.9-.1 1.36-.1H12z"/>
                     </svg>
                     <!-- SVG: light_mode -->
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" class="theme-icon-light" style="display: none;" aria-hidden="true" focusable="false">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" class="theme-icon-light" aria-hidden="true" focusable="false">
                         <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58a.996.996 0 0 0-1.41 0 .996.996 0 0 0 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37a.996.996 0 0 0-1.41 0 .996.996 0 0 0 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0a.996.996 0 0 0 0-1.41l-1.06-1.06zm-12.37 2.12a.996.996 0 0 0 0-1.41.996.996 0 0 0-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zm12.37-14.5a.996.996 0 0 0 0-1.41.996.996 0 0 0-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/>
                     </svg>
                 </button>
@@ -52,6 +52,13 @@
         <!-- Main Toolbar -->
         <section class="app-toolbar" aria-label="ツールバー">
             <div class="toolbar-group file-operations">
+                <button id="btn-new" class="btn-tool" title="新規作成 (Ctrl+N)" aria-label="新規作成">
+                    <!-- SVG: note_add -->
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true" focusable="false">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 14h-3v3h-2v-3H8v-2h3v-3h2v3h3v2zm-3-7V3.5L18.5 9H13z"/>
+                    </svg>
+                    <span class="btn-text">新規作成</span>
+                </button>
                 <button id="btn-open" class="btn-tool" title="ファイルを開く (Ctrl+O)" aria-label="ファイルを開く">
                     <!-- SVG: folder_open -->
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true" focusable="false">
@@ -197,7 +204,7 @@
     </div>
 
     <!-- Hidden Input for Image Upload -->
-    <input type="file" id="image-file-input" accept="image/*" style="display: none;">
+    <input type="file" id="image-file-input" accept="image/*">
 
     <!-- Local Libraries (Offline compatibility) -->
     <script src="libs/marked.min.js"></script>
@@ -205,6 +212,9 @@
     <script src="libs/prism.min.js"></script>
     <script src="libs/prism-markdown.min.js"></script>
     
+    <!-- Scroll Sync Helpers -->
+    <script src="scroll-sync.js"></script>
+
     <!-- Main Application Logic -->
     <script src="app.js"></script>
 </body>

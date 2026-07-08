@@ -31,9 +31,16 @@ GlowEdit は、HTML、CSS、Vanilla JavaScript のみで構築された、軽量
 セキュリティ制限を解除し、ローカルの `.md` ファイルを「直接上書き保存」したい場合は、ローカルのセキュアコンテキスト（localhost）で実行してください。
 
 ```bash
-# Python3を使用する場合の起動コマンド
-python3 -m http.server 8000 & sleep 1 && open http://localhost:8000
+# 最も簡単な起動方法
+npm start
 ```
+
+または、Python 3 で直接起動する場合は:
+
+```bash
+python3 -m http.server 8000
+```
+
 起動後、ブラウザで `http://localhost:8000` を開くことで、ネイティブアプリのようにファイルの上書き保存が可能になります。
 
 ## ファイル構成
