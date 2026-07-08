@@ -12,6 +12,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const darkIcon = themeToggle.querySelector('.theme-icon-dark');
   const lightIcon = themeToggle.querySelector('.theme-icon-light');
 
+  // Keyboard Shortcuts Help Modal
+  const btnShortcuts = document.getElementById('btn-shortcuts');
+  const shortcutsModal = document.getElementById('shortcuts-modal');
+  const btnShortcutsClose = document.getElementById('btn-shortcuts-close');
+
   // File Indicators & Title
   const currentFilenameSpan = document.getElementById('current-filename');
   const saveIndicator = document.getElementById('save-indicator');
@@ -921,7 +926,38 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   /* ==========================================================================
-     8. Keyboard Shortcuts Integration (OS/Browser compatibility)
+     8. Keyboard Shortcuts Help Modal
+     ========================================================================== */
+
+  let shortcutsTriggerEl = null;
+
+  function openShortcutsModal(triggerEl) {
+    shortcutsTriggerEl = triggerEl || null;
+    shortcutsModal.hidden = false;
+    btnShortcutsClose.focus();
+  }
+
+  function closeShortcutsModal() {
+    if (shortcutsModal.hidden) return;
+    shortcutsModal.hidden = true;
+    if (shortcutsTriggerEl) {
+      shortcutsTriggerEl.focus();
+      shortcutsTriggerEl = null;
+    }
+  }
+
+  function isShortcutsModalOpen() {
+    return !shortcutsModal.hidden;
+  }
+
+  btnShortcuts.addEventListener('click', () => openShortcutsModal(btnShortcuts));
+  btnShortcutsClose.addEventListener('click', closeShortcutsModal);
+  shortcutsModal.addEventListener('click', (e) => {
+    if (e.target === shortcutsModal) closeShortcutsModal();
+  });
+
+  /* ==========================================================================
+     9. Keyboard Shortcuts Integration (OS/Browser compatibility)
      ========================================================================== */
 
   // On Mac, plain Ctrl+<letter> is reserved by the OS/browser for Emacs-style
@@ -932,11 +968,29 @@ document.addEventListener('DOMContentLoaded', () => {
   const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
 
   window.addEventListener('keydown', (e) => {
-    const isShortcutModifier = isMac ? (e.metaKey && !e.ctrlKey) : e.ctrlKey;
-    if (!isShortcutModifier) return;
+    if (e.key === 'Escape' && isShortcutsModalOpen()) {
+      e.preventDefault();
+      closeShortcutsModal();
+      return;
+    }
 
     const activeEl = document.activeElement;
     const isEditorFocused = activeEl === textarea;
+
+    // "?" opens the shortcuts help, but only away from the editor so typing
+    // a literal question mark while writing markdown is never intercepted.
+    if (e.key === '?' && !isEditorFocused && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      if (isShortcutsModalOpen()) {
+        closeShortcutsModal();
+      } else {
+        openShortcutsModal(null);
+      }
+      return;
+    }
+
+    const isShortcutModifier = isMac ? (e.metaKey && !e.ctrlKey) : e.ctrlKey;
+    if (!isShortcutModifier) return;
 
     switch (e.key.toLowerCase()) {
       case 's':
@@ -985,7 +1039,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   /* ==========================================================================
-     9. Initial Content / Draft Restore
+     10. Initial Content / Draft Restore
      ========================================================================== */
 
   function loadInitialContent() {
@@ -1062,7 +1116,7 @@ greet("ユーザー");
       if (el === btnCopy) return;
       el.title = el.title.replace(/Ctrl\+/g, '⌘');
     });
-    document.querySelectorAll('.keyboard-hint').forEach((el) => {
+    document.querySelectorAll('.keyboard-hint, .shortcut-key').forEach((el) => {
       el.textContent = el.textContent.replace(/Ctrl\+/g, '⌘');
     });
   }
